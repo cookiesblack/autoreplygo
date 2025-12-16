@@ -1,0 +1,36 @@
+[2025-12-16 13:18:11] ===========================================
+[2025-12-16 13:18:11] 🚀 GasPro Email Auto-Reply Service Started
+[2025-12-16 13:18:11] ===========================================
+[2025-12-16 13:18:11] Mode: PRODUCTION
+[2025-12-16 13:18:11] Check interval: 60 seconds
+[2025-12-16 13:18:11] Timezone: Asia/Jakarta
+[2025-12-16 13:18:11] Active hours: 16:00 - 17:00 WIB
+[2025-12-16 13:18:11] ===========================================
+
+[2025-12-16 13:18:11] Auto-reply inactive (outside active hours)
+[2025-12-16 13:18:50] ===========================================
+[2025-12-16 13:18:50] 🚀 GasPro Email Auto-Reply Service Started
+[2025-12-16 13:18:50] ===========================================
+[2025-12-16 13:18:50] Mode: PRODUCTION
+[2025-12-16 13:18:50] Check interval: 60 seconds
+[2025-12-16 13:18:50] Timezone: Asia/Jakarta
+[2025-12-16 13:18:50] Active hours: 16:00 - 17:00 WIB
+[2025-12-16 13:18:50] ===========================================
+
+[2025-12-16 13:18:50] Auto-reply inactive (outside active hours)
+[2025-12-16 13:19:32] ===========================================
+[2025-12-16 13:19:32] 🚀 GasPro Email Auto-Reply Service Started
+[2025-12-16 13:19:33] ===========================================
+[2025-12-16 13:19:33] Mode: PRODUCTION
+[2025-12-16 13:19:33] Check interval: 60 seconds
+[2025-12-16 13:19:33] Timezone: Asia/Jakarta
+[2025-12-16 13:19:33] Active hours: 13:00 - 17:00 WIB
+[2025-12-16 13:19:33] ===========================================
+
+[2025-12-16 13:20:35] Found 1 new email(s) to process
+[2025-12-16 13:20:35] Email UID: 90
+[2025-12-16 13:20:54]   ✓ Auto-reply sent successfully to: ewinccm@gmail.com
+[2025-12-16 13:20:54]   ✓ Email marked as Seen and Answered
+[2025-12-16 13:20:54] 
+--- Auto-reply cycle completed ---
+
