@@ -181,7 +181,7 @@ func autoReply() {
 		writeLog(fmt.Sprintf("[x] Fetch Error: %v", err))
 	}
 
-	writeLog("\n--- Auto-reply cycle completed ---\n")
+	writeLog("--- Auto-reply cycle completed ---")
 }
 
 func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySectionName) {
