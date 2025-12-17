@@ -107,10 +107,12 @@ func autoReply() {
 
 	if active && showRun {
 		showRun = false
+		showInactive = true
 		writeLog("[v] Auto-reply now running")
 	}
 
 	if !active && showInactive {
+		showRun = true
 		showInactive = false
 		writeLog("[*] Auto-reply inactive (outside active hours)")
 		return
