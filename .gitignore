@@ -1,3 +1,4 @@
 # Environment files
 .env
+logs.txt
 node_modules/*

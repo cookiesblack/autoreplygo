@@ -35,6 +35,8 @@ var (
 	prodTimeCheck  int
 	debugMode      bool
 	location       *time.Location
+	showRun        bool = true
+	showInactive   bool = true
 )
 
 func init() {
@@ -93,19 +95,29 @@ func writeLog(message string) {
 	}
 }
 
-func autoReply() {
+func isActive() bool {
 	now := time.Now().In(location)
 	hour := now.Hour()
 
-	isActive := hour >= hourStart && hour < hourEnd
+	return hour >= hourStart && hour < hourEnd
+}
 
-	if !isActive {
+func autoReply() {
+	active := isActive()
+
+	if active && showRun {
+		showRun = false
+		writeLog("[v] Auto-reply now running")
+	}
+
+	if !active && showInactive {
+		showInactive = false
 		writeLog("[*] Auto-reply inactive (outside active hours)")
 		return
 	}
 
 	if debugMode {
-		writeLog("[DEBUG] Auto-reply running")
+		writeLog("[DEBUG] Checking email")
 	}
 
 	// Connect to IMAP server
@@ -373,7 +385,6 @@ func main() {
 	writeLog(fmt.Sprintf("Active hours: %d:00 - %d:00 WIB", hourStart, hourEnd))
 	writeLog("===========================================\n")
 
-	// Run first check immediately
 	autoReply()
 
 	// Set up ticker for periodic checks
