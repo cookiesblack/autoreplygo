@@ -1,4 +1,6 @@
 # Environment files
 .env
 logs.txt
+autoreply.exe
+autoreply
 node_modules/*
