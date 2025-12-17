@@ -40,12 +40,10 @@ var (
 )
 
 func init() {
-	// Load .env file
 	if err := godotenv.Load(); err != nil {
-		writeLog("[x] No .env file found")
+		fmt.Println("[x] Warning: No .env file found")
 	}
 
-	// Load configuration
 	emailUser = os.Getenv("EMAIL_USER")
 	emailPass = os.Getenv("EMAIL_PASS")
 	smtpHost = os.Getenv("SMTP_HOST")
@@ -58,7 +56,6 @@ func init() {
 	prodTimeCheck = getEnvAsInt("PROD_TIME_CHECK", 60)
 	debugMode = os.Getenv("DEBUG_MODE") == "true"
 
-	// Load timezone
 	var err error
 	location, err = time.LoadLocation(timezone)
 	if err != nil {
@@ -79,10 +76,8 @@ func writeLog(message string) {
 	timestamp := time.Now().In(location).Format("2006-01-02 15:04:05")
 	logMessage := fmt.Sprintf("[%s] %s\n", timestamp, message)
 
-	// Write to console
 	fmt.Print(logMessage)
 
-	// Write to file
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("[x] Error opening log file: %v", err)
@@ -95,11 +90,18 @@ func writeLog(message string) {
 	}
 }
 
+// Perbaikan Logika Jam Kerja (Support lintas hari, misal 22:00 s/d 05:00)
 func isActive() bool {
 	now := time.Now().In(location)
 	hour := now.Hour()
 
-	return hour >= hourStart && hour < hourEnd
+	if hourStart < hourEnd {
+		// Jam kerja normal (misal 08:00 - 17:00)
+		return hour >= hourStart && hour < hourEnd
+	} else {
+		// Jam kerja lintas hari (misal 22:00 - 05:00)
+		return hour >= hourStart || hour < hourEnd
+	}
 }
 
 func autoReply() {
@@ -118,11 +120,15 @@ func autoReply() {
 		return
 	}
 
+	// Jika tidak aktif, hentikan eksekusi di sini
+	if !active {
+		return
+	}
+
 	if debugMode {
 		writeLog("[DEBUG] Checking email")
 	}
 
-	// Connect to IMAP server
 	c, err := client.DialTLS(fmt.Sprintf("%s:%d", imapHost, imapPort), nil)
 	if err != nil {
 		writeLog(fmt.Sprintf("[x] IMAP Connection Error: %v", err))
@@ -130,20 +136,17 @@ func autoReply() {
 	}
 	defer c.Logout()
 
-	// Login
 	if err := c.Login(emailUser, emailPass); err != nil {
 		writeLog(fmt.Sprintf("[x] IMAP Login Error: %v", err))
 		return
 	}
 
-	// Select INBOX
 	_, err = c.Select("INBOX", false)
 	if err != nil {
 		writeLog(fmt.Sprintf("[x] IMAP Select Error: %v", err))
 		return
 	}
 
-	// Search for unseen and unanswered emails
 	criteria := imap.NewSearchCriteria()
 	criteria.WithoutFlags = []string{imap.SeenFlag, imap.AnsweredFlag}
 
@@ -191,22 +194,14 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 		return
 	}
 
-	writeLog(fmt.Sprintf("Email UID: %d", msg.Uid))
+	// Safety: Pastikan email selalu ditandai 'Seen' di akhir
+	defer func() {
+		markAsSeen(c, msg.Uid)
+	}()
 
-	// Get email body
-	r := msg.GetBody(section)
-	if r == nil {
-		writeLog("  [!] ERROR: Could not get email body")
-		return
-	}
+	writeLog(fmt.Sprintf("Email UID: %d | Subject: %s", msg.Uid, msg.Envelope.Subject))
 
-	// Parse email
-	mr, err := mail.CreateReader(r)
-	if err != nil {
-		writeLog(fmt.Sprintf("  [!] ERROR: Could not parse email: %v", err))
-		return
-	}
-
+	// 1. Ambil Sender
 	var fromEmail, fromName string
 	if len(msg.Envelope.From) > 0 {
 		fromEmail = strings.ToLower(msg.Envelope.From[0].MailboxName + "@" + msg.Envelope.From[0].HostName)
@@ -215,38 +210,48 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 
 	subject := msg.Envelope.Subject
 
-	// Check if from self
+	// Cek apakah email dari akun sendiri
 	isFromSelf := strings.ToLower(fromEmail) == strings.ToLower(emailUser)
 
-	// Ignore own auto-replies (loop prevention)
+	// 2. Loop Prevention: Abaikan jika ini adalah balasan (Re:) dari kita sendiri
 	if isFromSelf && strings.HasPrefix(strings.ToLower(subject), "re:") {
 		writeLog("  [!] IGNORED: Our own auto-reply (loop prevention)")
-		markAsSeen(c, msg.Uid)
 		return
 	}
 
-	// Ignore auto-mailers
-	if strings.Contains(fromEmail, "no-reply") ||
-		strings.Contains(fromEmail, "noreply") ||
-		strings.Contains(fromEmail, "mailer-daemon") ||
-		strings.Contains(strings.ToLower(subject), "auto") {
-		writeLog("  [!] IGNORED: Auto-mailer detected")
-		markAsSeen(c, msg.Uid)
-		return
-	}
-
-	// Ignore specific domains
-	ignoreDomains := []string{"@stripe.com", "@amazon.com.au"}
-	for _, domain := range ignoreDomains {
-		if strings.HasSuffix(fromEmail, domain) {
-			writeLog(fmt.Sprintf("  [!] IGNORED: Domain in ignore list (%s)", fromEmail))
-			markAsSeen(c, msg.Uid)
+	// 3. Filter Auto-mailer (kecuali jika dari diri sendiri, kita asumsikan itu form notification)
+	if !isFromSelf {
+		if strings.Contains(fromEmail, "no-reply") ||
+			strings.Contains(fromEmail, "noreply") ||
+			strings.Contains(fromEmail, "mailer-daemon") ||
+			strings.Contains(strings.ToLower(subject), "auto") {
+			writeLog("  [!] IGNORED: Auto-mailer detected")
 			return
+		}
+
+		ignoreDomains := []string{"@stripe.com", "@amazon.com.au"}
+		for _, domain := range ignoreDomains {
+			if strings.HasSuffix(fromEmail, domain) {
+				writeLog(fmt.Sprintf("  [!] IGNORED: Domain in ignore list (%s)", fromEmail))
+				return
+			}
 		}
 	}
 
-	// Read email body
-	var emailBody string
+	// 4. Baca Body Email (Wajib untuk ekstraksi Fluent Form)
+	r := msg.GetBody(section)
+	if r == nil {
+		writeLog("  [!] ERROR: Could not get email body")
+		return
+	}
+
+	mr, err := mail.CreateReader(r)
+	if err != nil {
+		writeLog(fmt.Sprintf("  [!] ERROR: Could not parse email: %v", err))
+		return
+	}
+
+	var bodyBuilder strings.Builder
 	for {
 		p, err := mr.NextPart()
 		if err == io.EOF {
@@ -255,72 +260,81 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 		if err != nil {
 			break
 		}
-
 		switch h := p.Header.(type) {
 		case *mail.InlineHeader:
 			b, _ := io.ReadAll(p.Body)
-			emailBody += string(b)
+			bodyBuilder.Write(b)
 		case *mail.AttachmentHeader:
-			// Skip attachments
 			_ = h
 		}
 	}
+	emailBody := bodyBuilder.String()
 
+	// 5. Tentukan Target Balasan
 	targetEmail := ""
 	targetName := "there"
-	isFluentForm := isFromSelf
 
-	if isFluentForm {
-		// Check Reply-To first
+	if isFromSelf {
+		writeLog("  [*] Email from SELF detected. Analyzing as Form Notification...")
+
+		// A. Prioritas 1: Cek Header Reply-To
+		// Fluent Form biasanya menaruh email pelanggan di header Reply-To
 		if len(msg.Envelope.ReplyTo) > 0 {
-			targetEmail = strings.ToLower(msg.Envelope.ReplyTo[0].MailboxName + "@" + msg.Envelope.ReplyTo[0].HostName)
-			targetName = msg.Envelope.ReplyTo[0].PersonalName
-			if targetName == "" {
-				targetName = "there"
+			replyToEmail := strings.ToLower(msg.Envelope.ReplyTo[0].MailboxName + "@" + msg.Envelope.ReplyTo[0].HostName)
+			// Pastikan Reply-To bukan diri sendiri
+			if replyToEmail != strings.ToLower(emailUser) {
+				targetEmail = replyToEmail
+				targetName = msg.Envelope.ReplyTo[0].PersonalName
+				writeLog(fmt.Sprintf("  [v] Found customer via Reply-To: %s", targetEmail))
 			}
 		}
 
-		// Extract from body if no Reply-To
-		if targetEmail == "" && emailBody != "" {
+		// B. Prioritas 2: Regex Body HTML (Jika Reply-To gagal atau masih diri sendiri)
+		if targetEmail == "" {
+			// Regex mencari pola tabel HTML standard Fluent Forms
+			// Mencari: <td> email@address.com </td> setelah header Email
 			emailRegex := regexp.MustCompile(`(?i)<th[^>]*>\s*<strong[^>]*>\s*Email\s*</strong>\s*</th>[\s\S]*?<td[^>]*>\s*([^\s<]+@[^\s<]+)\s*</td>`)
 			if matches := emailRegex.FindStringSubmatch(emailBody); len(matches) > 1 {
 				targetEmail = strings.TrimSpace(matches[1])
 			}
 
+			// Mencari Nama
 			nameRegex := regexp.MustCompile(`(?i)<th[^>]*>\s*<strong[^>]*>\s*Full Name\s*</strong>\s*</th>[\s\S]*?<td[^>]*>\s*([^<]+?)\s*</td>`)
 			if matches := nameRegex.FindStringSubmatch(emailBody); len(matches) > 1 {
 				targetName = strings.TrimSpace(matches[1])
 			}
 
-			writeLog(fmt.Sprintf("  [!] Target email: %s", targetEmail))
-			writeLog(fmt.Sprintf("  [!] Target name: %s", targetName))
+			if targetEmail != "" {
+				writeLog(fmt.Sprintf("  [v] Extracted customer via Body Parsing: %s", targetEmail))
+			}
 		}
 
+		// C. Jika Gagal Ekstraksi
 		if targetEmail == "" {
-			writeLog("  [!] IGNORED: Cannot extract customer email from Fluent Form")
-			markAsSeen(c, msg.Uid)
-			return
+			writeLog("  [!] IGNORED: From self, but failed to extract Customer Email from body/headers.")
+			return // STOP. Jangan balas ke diri sendiri.
 		}
 
-		writeLog(fmt.Sprintf("  [!] Fluent Form - replying to: %s <%s>", targetName, targetEmail))
 	} else {
+		// Email Normal (Bukan dari diri sendiri)
 		targetEmail = fromEmail
-		if fromName != "" {
-			targetName = fromName
-		}
+		targetName = fromName
 	}
 
-	// Send auto-reply
+	if targetName == "" {
+		targetName = "there"
+	}
+
+	// 6. Kirim Auto Reply
 	if err := sendAutoReply(targetEmail, targetName, msg.Envelope.MessageId); err != nil {
-		writeLog(fmt.Sprintf("  [!] ERROR sending auto-reply: %v", err))
+		writeLog(fmt.Sprintf("  [!] ERROR sending auto-reply to %s: %v", targetEmail, err))
 		return
 	}
 
 	writeLog(fmt.Sprintf("  [v] Auto-reply sent successfully to: %s", targetEmail))
 
-	// Mark as seen and answered
-	markAsSeenAndAnswered(c, msg.Uid)
-	writeLog("  [v] Email marked as Seen and Answered")
+	// Opsional: Tandai sebagai dijawab di server
+	markAsAnswered(c, msg.Uid)
 }
 
 func sendAutoReply(to, name, messageID string) error {
@@ -346,7 +360,6 @@ GasPro Detection Team`, name)
 	}
 
 	d := gomail.NewDialer(smtpHost, smtpPort, emailUser, emailPass)
-
 	return d.DialAndSend(m)
 }
 
@@ -355,27 +368,31 @@ func markAsSeen(c *client.Client, uid uint32) {
 	seqset.AddNum(uid)
 	item := imap.FormatFlagsOp(imap.AddFlags, true)
 	flags := []interface{}{imap.SeenFlag}
-	c.UidStore(seqset, item, flags, nil)
+	if err := c.UidStore(seqset, item, flags, nil); err != nil {
+		writeLog(fmt.Sprintf("  [x] Failed to mark UID %d as seen: %v", uid, err))
+	}
 }
 
-func markAsSeenAndAnswered(c *client.Client, uid uint32) {
+func markAsAnswered(c *client.Client, uid uint32) {
 	seqset := new(imap.SeqSet)
 	seqset.AddNum(uid)
 	item := imap.FormatFlagsOp(imap.AddFlags, true)
-	flags := []interface{}{imap.SeenFlag, imap.AnsweredFlag}
-	c.UidStore(seqset, item, flags, nil)
+	flags := []interface{}{imap.AnsweredFlag}
+	if err := c.UidStore(seqset, item, flags, nil); err != nil {
+		writeLog(fmt.Sprintf("  [x] Failed to mark UID %d as answered: %v", uid, err))
+	}
 }
 
 func main() {
-	// Initialize log
 	writeLog("===========================================")
 	writeLog("GasPro Email Auto-Reply Service Started")
 	writeLog("===========================================")
+
+	mode := "PRODUCTION"
 	if debugMode {
-		writeLog("Mode: DEBUG")
-	} else {
-		writeLog("Mode: PRODUCTION")
+		mode = "DEBUG"
 	}
+	writeLog(fmt.Sprintf("Mode: %s", mode))
 
 	checkInterval := prodTimeCheck
 	if debugMode {
@@ -387,9 +404,9 @@ func main() {
 	writeLog(fmt.Sprintf("Active hours: %d:00 - %d:00 WIB", hourStart, hourEnd))
 	writeLog("===========================================\n")
 
+	// Jalankan sekali saat startup
 	autoReply()
 
-	// Set up ticker for periodic checks
 	ticker := time.NewTicker(time.Duration(checkInterval) * time.Second)
 	defer ticker.Stop()
 
