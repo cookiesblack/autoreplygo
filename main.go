@@ -83,13 +83,13 @@ func writeLog(message string) {
 	// Write to file
 	f, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Printf("Error opening log file: %v", err)
+		log.Printf("[x] Error opening log file: %v", err)
 		return
 	}
 	defer f.Close()
 
 	if _, err := f.WriteString(logMessage); err != nil {
-		log.Printf("Error writing to log file: %v", err)
+		log.Printf("[x] Error writing to log file: %v", err)
 	}
 }
 
@@ -100,7 +100,7 @@ func autoReply() {
 	isActive := hour >= hourStart && hour < hourEnd
 
 	if !isActive {
-		writeLog("Auto-reply inactive (outside active hours)")
+		writeLog("[*] Auto-reply inactive (outside active hours)")
 		return
 	}
 
@@ -111,21 +111,21 @@ func autoReply() {
 	// Connect to IMAP server
 	c, err := client.DialTLS(fmt.Sprintf("%s:%d", imapHost, imapPort), nil)
 	if err != nil {
-		writeLog(fmt.Sprintf("IMAP Connection Error: %v", err))
+		writeLog(fmt.Sprintf("[x] IMAP Connection Error: %v", err))
 		return
 	}
 	defer c.Logout()
 
 	// Login
 	if err := c.Login(emailUser, emailPass); err != nil {
-		writeLog(fmt.Sprintf("IMAP Login Error: %v", err))
+		writeLog(fmt.Sprintf("[x] IMAP Login Error: %v", err))
 		return
 	}
 
 	// Select INBOX
 	_, err = c.Select("INBOX", false)
 	if err != nil {
-		writeLog(fmt.Sprintf("IMAP Select Error: %v", err))
+		writeLog(fmt.Sprintf("[x] IMAP Select Error: %v", err))
 		return
 	}
 
@@ -135,18 +135,18 @@ func autoReply() {
 
 	uids, err := c.Search(criteria)
 	if err != nil {
-		writeLog(fmt.Sprintf("IMAP Search Error: %v", err))
+		writeLog(fmt.Sprintf("[x] IMAP Search Error: %v", err))
 		return
 	}
 
 	if len(uids) == 0 {
 		if debugMode {
-			writeLog("No new emails to process")
+			writeLog("[*] No new emails to process")
 		}
 		return
 	}
 
-	writeLog(fmt.Sprintf("Found %d new email(s) to process", len(uids)))
+	writeLog(fmt.Sprintf("[v] Found %d new email(s) to process", len(uids)))
 
 	seqset := new(imap.SeqSet)
 	seqset.AddNum(uids...)
@@ -166,7 +166,7 @@ func autoReply() {
 	}
 
 	if err := <-done; err != nil {
-		writeLog(fmt.Sprintf("Fetch Error: %v", err))
+		writeLog(fmt.Sprintf("[x] Fetch Error: %v", err))
 	}
 
 	writeLog("\n--- Auto-reply cycle completed ---\n")
@@ -182,14 +182,14 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 	// Get email body
 	r := msg.GetBody(section)
 	if r == nil {
-		writeLog("  → ERROR: Could not get email body")
+		writeLog("  [!] ERROR: Could not get email body")
 		return
 	}
 
 	// Parse email
 	mr, err := mail.CreateReader(r)
 	if err != nil {
-		writeLog(fmt.Sprintf("  → ERROR: Could not parse email: %v", err))
+		writeLog(fmt.Sprintf("  [!] ERROR: Could not parse email: %v", err))
 		return
 	}
 
@@ -206,7 +206,7 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 
 	// Ignore own auto-replies (loop prevention)
 	if isFromSelf && strings.HasPrefix(strings.ToLower(subject), "re:") {
-		writeLog("  → IGNORED: Our own auto-reply (loop prevention)")
+		writeLog("  [!] IGNORED: Our own auto-reply (loop prevention)")
 		markAsSeen(c, msg.Uid)
 		return
 	}
@@ -216,7 +216,7 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 		strings.Contains(fromEmail, "noreply") ||
 		strings.Contains(fromEmail, "mailer-daemon") ||
 		strings.Contains(strings.ToLower(subject), "auto") {
-		writeLog("  → IGNORED: Auto-mailer detected")
+		writeLog("  [!] IGNORED: Auto-mailer detected")
 		markAsSeen(c, msg.Uid)
 		return
 	}
@@ -225,7 +225,7 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 	ignoreDomains := []string{"@stripe.com", "@amazon.com.au"}
 	for _, domain := range ignoreDomains {
 		if strings.HasSuffix(fromEmail, domain) {
-			writeLog(fmt.Sprintf("  → IGNORED: Domain in ignore list (%s)", fromEmail))
+			writeLog(fmt.Sprintf("  [!] IGNORED: Domain in ignore list (%s)", fromEmail))
 			markAsSeen(c, msg.Uid)
 			return
 		}
@@ -278,17 +278,17 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 				targetName = strings.TrimSpace(matches[1])
 			}
 
-			writeLog(fmt.Sprintf("  → Target email: %s", targetEmail))
-			writeLog(fmt.Sprintf("  → Target name: %s", targetName))
+			writeLog(fmt.Sprintf("  [!] Target email: %s", targetEmail))
+			writeLog(fmt.Sprintf("  [!] Target name: %s", targetName))
 		}
 
 		if targetEmail == "" {
-			writeLog("  → IGNORED: Cannot extract customer email from Fluent Form")
+			writeLog("  [!] IGNORED: Cannot extract customer email from Fluent Form")
 			markAsSeen(c, msg.Uid)
 			return
 		}
 
-		writeLog(fmt.Sprintf("  → Fluent Form - replying to: %s <%s>", targetName, targetEmail))
+		writeLog(fmt.Sprintf("  [!] Fluent Form - replying to: %s <%s>", targetName, targetEmail))
 	} else {
 		targetEmail = fromEmail
 		if fromName != "" {
@@ -298,15 +298,15 @@ func processEmail(c *client.Client, msg *imap.Message, section *imap.BodySection
 
 	// Send auto-reply
 	if err := sendAutoReply(targetEmail, targetName, msg.Envelope.MessageId); err != nil {
-		writeLog(fmt.Sprintf("  → ERROR sending auto-reply: %v", err))
+		writeLog(fmt.Sprintf("  [!] ERROR sending auto-reply: %v", err))
 		return
 	}
 
-	writeLog(fmt.Sprintf("  ✓ Auto-reply sent successfully to: %s", targetEmail))
+	writeLog(fmt.Sprintf("  [v] Auto-reply sent successfully to: %s", targetEmail))
 
 	// Mark as seen and answered
 	markAsSeenAndAnswered(c, msg.Uid)
-	writeLog("  ✓ Email marked as Seen and Answered")
+	writeLog("  [v] Email marked as Seen and Answered")
 }
 
 func sendAutoReply(to, name, messageID string) error {
@@ -355,7 +355,7 @@ func markAsSeenAndAnswered(c *client.Client, uid uint32) {
 func main() {
 	// Initialize log
 	writeLog("===========================================")
-	writeLog("🚀 GasPro Email Auto-Reply Service Started")
+	writeLog("GasPro Email Auto-Reply Service Started")
 	writeLog("===========================================")
 	if debugMode {
 		writeLog("Mode: DEBUG")
